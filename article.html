@@ -1,0 +1,699 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Trusted npm Package That Turned Malicious — node-ipc 2026</title>
+<style>
+  :root {
+    --bg-deep: #07070a;
+    --bg-card: #0e0e12;
+    --bg-surface: #131318;
+    --border-dim: rgba(255,255,255,0.06);
+    --border-mid: rgba(255,255,255,0.10);
+    --text-primary: #e8e8ec;
+    --text-secondary: #8a8a96;
+    --text-muted: #55555f;
+    --accent-red: #ff4d4d;
+    --accent-red-glow: rgba(255,77,77,0.15);
+    --accent-cyan: #00e5ff;
+    --accent-cyan-dim: rgba(0,229,255,0.08);
+    --accent-orange: #ff9800;
+    --font-serif: 'Georgia', 'Times New Roman', serif;
+    --font-mono: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+    --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  }
+
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; font-size: 18px; }
+
+  body {
+    background: var(--bg-deep);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    line-height: 1.7;
+    min-height: 100vh;
+    overflow-x: hidden;
+    position: relative;
+  }
+
+  /* Grain overlay */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    opacity: 0.03;
+    pointer-events: none;
+    z-index: 1000;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    background-size: 128px 128px;
+  }
+
+  /* Ambient glow blobs */
+  .ambient-glow {
+    position: fixed;
+    width: 600px;
+    height: 600px;
+    border-radius: 50%;
+    filter: blur(120px);
+    opacity: 0.07;
+    pointer-events: none;
+    z-index: 0;
+  }
+  .glow-1 { top: -200px; left: -200px; background: var(--accent-red); }
+  .glow-2 { bottom: 10%; right: -200px; background: var(--accent-cyan); opacity: 0.04; }
+  .glow-3 { top: 50%; left: 30%; width: 400px; height: 400px; background: var(--accent-orange); opacity: 0.03; }
+
+  /* Reading progress bar */
+  .progress-bar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 2px;
+    background: linear-gradient(90deg, var(--accent-cyan), var(--accent-red));
+    z-index: 9999;
+    width: 0%;
+    transition: width 0.1s linear;
+  }
+
+  /* Header / nav */
+  header {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    backdrop-filter: blur(20px) saturate(1.4);
+    -webkit-backdrop-filter: blur(20px) saturate(1.4);
+    background: rgba(7,7,10,0.75);
+    border-bottom: 1px solid var(--border-dim);
+  }
+  .header-inner {
+    max-width: 820px;
+    margin: 0 auto;
+    padding: 0.8rem 2rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    text-decoration: none;
+    color: var(--text-primary);
+  }
+  .brand-icon {
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    background: linear-gradient(135deg, var(--accent-red), #cc3333);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 900;
+    font-size: 0.7rem;
+    color: white;
+    letter-spacing: -0.5px;
+  }
+  .brand-text {
+    font-weight: 700;
+    font-size: 0.85rem;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+  }
+  .tag-pills {
+    display: flex;
+    gap: 0.4rem;
+  }
+  .tag-pill {
+    font-size: 0.65rem;
+    padding: 0.25rem 0.6rem;
+    border-radius: 100px;
+    background: var(--accent-cyan-dim);
+    color: var(--accent-cyan);
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+  }
+  .tag-pill.red {
+    background: var(--accent-red-glow);
+    color: var(--accent-red);
+  }
+
+  /* Main article area */
+  main {
+    position: relative;
+    z-index: 1;
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 0 2rem 6rem;
+  }
+
+  /* Hero section */
+  .hero {
+    margin-top: 4rem;
+    margin-bottom: 3rem;
+    padding-bottom: 3rem;
+    border-bottom: 1px solid var(--border-dim);
+  }
+  .hero-meta {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+    flex-wrap: wrap;
+  }
+  .hero-date {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    color: var(--accent-cyan);
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+  }
+  .hero-separator {
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: var(--text-muted);
+  }
+  .hero-category {
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+    font-weight: 500;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+  }
+  h1 {
+    font-family: var(--font-serif);
+    font-size: clamp(1.8rem, 4vw, 2.6rem);
+    font-weight: 400;
+    line-height: 1.25;
+    letter-spacing: -0.5px;
+    color: var(--text-primary);
+    margin-bottom: 1.5rem;
+  }
+  h1 em {
+    font-style: normal;
+    color: var(--accent-red);
+  }
+  .subtitle {
+    font-size: 1.05rem;
+    color: var(--text-secondary);
+    line-height: 1.6;
+    max-width: 640px;
+  }
+
+  /* Hero image */
+  .hero-figure {
+    margin: 2.5rem 0 0;
+    position: relative;
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid var(--border-mid);
+  }
+  .hero-figure img {
+    width: 100%;
+    height: auto;
+    display: block;
+  }
+  .figure-caption {
+    padding: 0.9rem 1.2rem;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    font-style: italic;
+    border-top: 1px solid var(--border-dim);
+    background: var(--bg-card);
+  }
+
+  /* Section headings */
+  h2 {
+    font-family: var(--font-sans);
+    font-size: 1.35rem;
+    font-weight: 700;
+    margin-top: 3.5rem;
+    margin-bottom: 1.2rem;
+    padding-top: 1.5rem;
+    letter-spacing: -0.3px;
+    color: var(--text-primary);
+    position: relative;
+  }
+  h2::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -2rem;
+    width: 3px;
+    height: 1.5em;
+    background: linear-gradient(to bottom, var(--accent-cyan), transparent);
+    border-radius: 2px;
+  }
+
+  p {
+    margin-bottom: 1.5rem;
+    color: var(--text-secondary);
+    font-size: 0.95rem;
+  }
+  p strong { color: var(--text-primary); }
+
+  /* Blockquote */
+  blockquote {
+    margin: 2.5rem 0;
+    padding: 1.5rem 1.8rem;
+    border-left: 3px solid var(--accent-red);
+    background: var(--accent-red-glow);
+    border-radius: 0 8px 8px 0;
+    position: relative;
+  }
+  blockquote p {
+    color: var(--text-primary);
+    font-size: 1.05rem;
+    font-weight: 600;
+    line-height: 1.65;
+    margin-bottom: 0;
+  }
+
+  /* Image figures */
+  .article-figure {
+    margin: 2.5rem 0;
+    border-radius: 10px;
+    overflow: hidden;
+    border: 1px solid var(--border-mid);
+    position: relative;
+  }
+  .article-figure img {
+    width: 100%;
+    height: auto;
+    display: block;
+  }
+  .article-figure figcaption {
+    padding: 0.8rem 1.2rem;
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    font-style: italic;
+    background: var(--bg-surface);
+    border-top: 1px solid var(--border-dim);
+  }
+
+  /* Divider */
+  hr {
+    border: none;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--border-mid), transparent);
+    margin: 3rem 0;
+  }
+
+  /* Inline code */
+  code, kbd, samp {
+    font-family: var(--font-mono);
+    font-size: 0.82em;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-dim);
+    padding: 0.15em 0.45em;
+    border-radius: 4px;
+    color: var(--accent-cyan);
+  }
+
+  /* Sources section */
+  .sources {
+    margin-top: 4rem;
+    padding: 2rem;
+    background: var(--bg-card);
+    border: 1px solid var(--border-dim);
+    border-radius: 12px;
+  }
+  .sources h2 {
+    margin-top: 0;
+    padding-top: 0;
+  }
+  .sources ol {
+    list-style: none;
+    counter-reset: sources;
+  }
+  .sources li {
+    counter-increment: sources;
+    margin-bottom: 1.2rem;
+    padding-left: 2.8rem;
+    position: relative;
+    padding-top: 0.1rem;
+  }
+  .sources li::before {
+    content: counter(sources);
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 1.8rem;
+    height: 1.8rem;
+    border-radius: 6px;
+    background: var(--accent-cyan-dim);
+    color: var(--accent-cyan);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.7rem;
+    font-weight: 700;
+    font-family: var(--font-mono);
+  }
+  .sources li strong {
+    display: block;
+    color: var(--text-primary);
+    font-size: 0.88rem;
+    margin-bottom: 0.2rem;
+  }
+  .sources li a {
+    color: var(--accent-cyan);
+    font-size: 0.78rem;
+    word-break: break-all;
+    text-decoration: none;
+    border-bottom: 1px solid rgba(0,229,255,0.2);
+    transition: border-color 0.2s;
+  }
+  .sources li a:hover {
+    border-bottom-color: var(--accent-cyan);
+  }
+
+  /* Footer */
+  footer {
+    position: relative;
+    z-index: 1;
+    text-align: center;
+    padding: 3rem 2rem;
+    border-top: 1px solid var(--border-dim);
+    margin-top: 2rem;
+  }
+  .footer-brand {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    font-weight: 600;
+  }
+  .footer-brand span {
+    color: var(--accent-red);
+  }
+
+  /* Scroll reveal animation */
+  .reveal {
+    opacity: 0;
+    transform: translateY(18px);
+    animation: fadeUp 0.7s ease forwards;
+  }
+  @keyframes fadeUp {
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .delay-1 { animation-delay: 0.1s; }
+  .delay-2 { animation-delay: 0.2s; }
+  .delay-3 { animation-delay: 0.3s; }
+  .delay-4 { animation-delay: 0.4s; }
+
+  /* Responsive */
+  @media (max-width: 640px) {
+    html { font-size: 16px; }
+    main { padding: 0 1.2rem 4rem; }
+    .header-inner { padding: 0.8rem 1.2rem; }
+    h2::before { left: -1.2rem; }
+    .hero { margin-top: 2rem; }
+  }
+
+  /* Smooth scroll indicator */
+  .scroll-hint {
+    position: fixed;
+    bottom: 2rem;
+    right: 2rem;
+    z-index: 100;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-mid);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.3s;
+    opacity: 0;
+    pointer-events: none;
+    color: var(--text-secondary);
+    font-size: 1.1rem;
+  }
+  .scroll-hint.visible {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .scroll-hint:hover {
+    border-color: var(--accent-cyan);
+    color: var(--accent-cyan);
+    transform: scale(1.05);
+  }
+</style>
+</head>
+<body>
+
+<!-- Progress bar -->
+<div class="progress-bar" id="progressBar"></div>
+
+<!-- Ambient glows -->
+<div class="ambient-glow glow-1"></div>
+<div class="ambient-glow glow-2"></div>
+<div class="ambient-glow glow-3"></div>
+
+<!-- Sticky header -->
+<header>
+  <div class="header-inner">
+    <a href="#" class="brand">
+      <div class="brand-icon">SC</div>
+      <span class="brand-text">Supply Chain Security</span>
+    </a>
+    <div class="tag-pills">
+      <span class="tag-pill red">CRITICAL</span>
+      <span class="tag-pill">npm</span>
+      <span class="tag-pill">2026</span>
+    </div>
+  </div>
+</header>
+
+<main>
+
+  <!-- HERO -->
+  <section class="hero reveal">
+    <div class="hero-meta delay-1">
+      <span class="hero-date">August 30, 2026</span>
+      <span class="hero-separator"></span>
+      <span class="hero-category">Software Supply Chain · Long Read</span>
+    </div>
+    <h1 class="delay-2">The Trusted npm Package That Turned <em>Malicious</em></h1>
+    <p class="subtitle delay-3">In May 2026, three malicious node-ipc releases appeared on npm while the upstream project still showed 12.0.0. The gap exposed how much modern software depends on trust outside the code we can see.</p>
+
+    <div class="hero-figure delay-4">
+      <img src="01-source-vs-distribution.png" alt="Source repository vs distribution channel - showing the divergence between trusted source and compromised release">
+      <figcaption class="figure-caption">The source repository still looked familiar. The distribution channel was telling a different story.</figcaption>
+    </div>
+  </section>
+
+  <!-- ARTICLE BODY -->
+  <article>
+
+    <p class="reveal">On May 14, 2026, a developer opening the <code>node-ipc</code> project on GitHub would have seen little reason for alarm. The upstream repository still pointed to version <code>12.0.0</code>, the project looked much as it had before, and nothing about the familiar source page suggested that the package had become the center of a security incident. But the software arriving through npm was no longer telling the same story.</p>
+
+    <p>That day, three malicious versions of <code>node-ipc</code>—<code>9.1.6</code>, <code>9.2.3</code>, and <code>12.0.1</code>—appeared through the official npm distribution channel. The discrepancy was small enough to fit inside a version number, yet large enough to expose one of the software industry's most consequential assumptions: the code developers inspect and the package they install are not necessarily governed by the same systems, credentials, or trust relationships.</p>
+
+    <p>For most developers, the distinction is almost invisible. GitHub is where a project is read, discussed, and reviewed; npm is where the package is retrieved. In ordinary use, they feel like two windows onto the same thing. The <code>node-ipc</code> incident made clear that they are not. A source repository can remain unchanged while the distribution path around it changes completely.</p>
+
+    <p>That was what made the incident larger than a story about malicious code. The package name remained familiar, the installation command remained familiar, and the project developers recognized was still there. What had changed was the chain of authority behind the package being delivered to them.</p>
+
+    <p>Modern software depends on that chain. Applications are assembled from libraries, frameworks, build tools, and packages maintained by people all over the world. Every installation carries a quiet promise that the software arriving through a registry is the software its maintainers intended to publish.</p>
+
+    <p><strong>The <code>node-ipc</code> incident began when that promise broke.</strong></p>
+
+    <hr>
+
+    <h2 class="reveal">The package was only the beginning</h2>
+
+    <p>Open-source software works because developers do not build everything themselves. A modern application may rely on hundreds or thousands of components maintained by people the application team will never meet. That arrangement is one of software's great force multipliers: small teams can build enormous systems because they inherit years of work from the ecosystem around them.</p>
+
+    <p>They inherit something else as well. Every dependency brings assumptions about who controls it, how releases are published, and what the package will be allowed to do once it reaches a developer workstation or CI environment. Most of those assumptions remain invisible until one of them fails.</p>
+
+    <p>The malicious <code>node-ipc</code> releases were designed to inspect developer and CI environments for sensitive information. Their targets included SSH keys, cloud credentials, Kubernetes configuration, package-manager credentials, source-control credentials, database configuration, <code>.env</code> files, shell history, and other developer-tool settings. These were not simply interesting files on a machine; many represented access to the systems developers use to build, deploy, and operate software.</p>
+
+    <p>That proximity is what gave the compromise its reach. A third-party package running in a development environment may sit only a few steps away from private repositories, cloud accounts, deployment infrastructure, and production-adjacent systems. The dangerous part of a malicious dependency is therefore not only the code inside it, but the environment that agrees to run it.</p>
+
+    <div class="article-figure reveal">
+      <img src="03-multiple-layers-of-trust.png" alt="Radial diagram showing node-ipc at the center of developer, CI, and credential trust layers">
+      <figcaption>A package can be small while the environment around it is enormously valuable.</figcaption>
+    </div>
+
+    <p>A compromised dependency does not need to attack every downstream system directly. If it reaches an environment that already possesses legitimate access, some of the hardest work has already been done for it.</p>
+
+    <blockquote>
+      <p><strong>The package was not valuable because of what it contained. It was valuable because of where developers were willing to run it.</strong></p>
+    </blockquote>
+
+    <hr>
+
+    <h2 class="reveal">Forty-eight hours</h2>
+
+    <p>Once researchers recognized the malicious releases, the incident moved quickly. On May 14, a public GitHub issue documented the malicious <code>12.0.1</code> package and researchers began examining the releases, the publishing identity behind them, and the difference between what existed in npm and what remained visible upstream.</p>
+
+    <p>That difference became the defining clue. The GitHub project was still on <code>12.0.0</code>; npm contained releases that did not belong to the same source history. Investigators were not simply looking at unwanted code merged into a repository. They were looking at a distribution path that had separated from it.</p>
+
+    <div class="article-figure reveal">
+      <img src="02-two-day-shockwave.png" alt="Timeline of the node-ipc incident across May 14 and May 15, 2026">
+      <figcaption>The story moved from malicious publication to public investigation and containment in roughly two days.</figcaption>
+    </div>
+
+    <p>By May 15, the repository owner had publicly confirmed that the malicious package was present on the official npm channel. Write access was restricted, credentials other than the owner's were revoked, and the malicious tarballs were reported removed. In little more than a day, a familiar open-source dependency had become the center of an ecosystem-wide security response.</p>
+
+    <p>The speed matters because trust accumulates slowly while compromise can happen all at once. A package may spend years becoming ordinary enough that nobody thinks twice about installing it. Then a change in publishing authority can alter what that familiar name delivers in a matter of hours. The interface may look the same. The command may be the same. The habit of trust may be the same. The thing at the other end no longer is.</p>
+
+    <hr>
+
+    <h2 class="reveal">The identity nobody was watching</h2>
+
+    <p>The most revealing part of the incident was not hidden deep inside JavaScript. It was attached to an old email address.</p>
+
+    <p>Publication metadata pointed investigators toward a dormant maintainer identity associated with an address at <code>atlantis-software.net</code>. The domain had lapsed and later returned under new control, and investigators found working mail infrastructure for it after the incident. An identity that looked historical and unimportant had become relevant again because publishing authority can outlive the person or organization that originally created it.</p>
+
+    <p>That is an uncomfortable property of account recovery. A publishing account is not secured only by its current password or MFA configuration; it can also depend on old email addresses, old domains, recovery workflows, collaborator lists, and permissions that nobody has reviewed in years. When those pieces remain connected, abandoned identity infrastructure can quietly remain part of the software supply chain.</p>
+
+    <p>The <code>node-ipc</code> investigation put that problem in unusually concrete terms. A forgotten maintainer domain was not merely a web property that had expired. It was part of an identity chain connected to package publishing. Once an old identity becomes useful again, the consequences can travel forward into systems that still trust it.</p>
+
+    <p>For maintainers, the lesson is simple: dormant publishing authority is security debt. So are expired domains, forgotten recovery addresses, and contributors who still possess privileges long after their role in a project has ended.</p>
+
+    <blockquote>
+      <p><strong>Old identities do not stop mattering just because everyone has stopped thinking about them.</strong></p>
+    </blockquote>
+
+    <hr>
+
+    <h2 class="reveal">Why developer machines are such valuable ground</h2>
+
+    <p>A developer laptop is rarely just a laptop, and a CI runner is rarely just a machine that runs tests. These environments sit at the intersection of an organization's code, credentials, infrastructure, and release process. They may be able to reach private repositories, cloud services, deployment platforms, package registries, Kubernetes clusters, internal databases, and production-adjacent systems.</p>
+
+    <p>That makes the development environment a particularly attractive place for a supply-chain attack to land. The attacker does not need to discover every service from the outside if the compromised code runs somewhere those services are already trusted. Existing permissions, configuration files, tokens, and automation can turn the development environment into a map of the organization around it.</p>
+
+    <p>This is why a small dependency can produce outsized concern. The package itself may represent only a tiny fraction of an application's codebase, but its position inside the development process can give it proximity to systems far more valuable than the package itself.</p>
+
+    <p>A useful analogy is not a thief breaking into every building on a street, but someone compromising the courier who already has keys, routes, and permission to enter.</p>
+
+    <hr>
+
+    <h2 class="reveal">Trust travels with the package</h2>
+
+    <p>The <code>node-ipc</code> incident crossed layers that software teams often manage as separate problems. A maintainer identity can possess publishing rights. Publishing rights determine what appears in a registry. The registry supplies software to developer machines and CI systems. Those systems contain credentials and configuration. Those credentials can lead to larger environments.</p>
+
+    <div class="article-figure reveal">
+      <img src="04-trust-chain.png" alt="Trust chain diagram from identity and publishing through package, runtime, secrets, and network">
+      <figcaption>The software supply chain is a sequence of connected trust decisions, not a single security boundary.</figcaption>
+    </div>
+
+    <p>Seen that way, <code>node-ipc</code> was not only an npm incident. It was an identity incident, a distribution incident, and a developer-security incident. Each layer inherited confidence from the one before it. The package was trusted partly because the registry delivered it; the registry release was trusted partly because valid publishing authority had produced it; the code was allowed to run because all of those earlier assumptions normally hold.</p>
+
+    <p>This is both the strength and the weakness of modern software reuse. Developers can build extraordinary systems because they do not have to renegotiate every trust relationship from first principles each time they install a package. But the same efficiency means risk can also be inherited.</p>
+
+    <p>The answer is not to distrust open source. Modern software development would be nearly impossible without it. The more useful lesson is to stop thinking of trust as permanent. A package can deserve confidence for years and still become dangerous if control of its publishing path changes.</p>
+
+    <hr>
+
+    <h2 class="reveal">What should change after <code>node-ipc</code></h2>
+
+    <p>No development team can realistically inspect every line of every dependency it uses, and perfect inspection would not solve the larger problem anyway. Software changes continuously. Maintainers change, releases change, account ownership changes, infrastructure changes, and dependencies acquire dependencies of their own. Security has to survive those changes rather than assume they will never happen.</p>
+
+    <p>For critical packages, publishing access should be treated like production access: limited, reviewed, and removed when it is no longer necessary. Old collaborator accounts and maintainer domains deserve lifecycle management. Unexpected releases deserve scrutiny, particularly when they do not correspond to expected source history. Developer and CI environments should also hold as few long-lived credentials as practical, because every secret available to the environment is potentially available to code running inside it.</p>
+
+    <p>A dependency incident should therefore trigger a broader question than "Which version did we install?" Teams also need to ask what the package could reach, what credentials were present, where those credentials led, and what assumptions allowed the package to run there in the first place.</p>
+
+    <p>That shift—from package inventory to trust-path analysis—is one of the most useful lessons from the incident.</p>
+
+    <hr>
+
+    <h2 class="reveal">The familiar thing at the door</h2>
+
+    <p>What makes the <code>node-ipc</code> story unsettling is how ordinary its starting point was. There was no need for the package name to change, no need for developers to adopt an unfamiliar tool, and no need for the upstream project to suddenly look obviously hostile. The attack could benefit from trust that had already been earned.</p>
+
+    <p>That is the defining advantage of a software supply-chain attack. Instead of forcing its way through every organization's front door, it can compromise something organizations have already decided to invite inside.</p>
+
+    <p>Open source runs on that invitation. Developers build on one another's work because the ecosystem makes reuse cheap, fast, and usually dependable. That model is not going away, nor should it. But the model works only if teams understand that trust belongs to a chain of people, identities, registries, tools, and runtime environments—not to a package name alone.</p>
+
+    <p>The <code>node-ipc</code> compromise was therefore more than the story of malicious releases. It was a reminder that familiar software arrives carrying the authority of everything behind it: the maintainer who can publish it, the registry that distributes it, the tooling that installs it, and the environment that permits it to run.</p>
+
+    <p>Most days, those relationships are invisible.</p>
+
+    <p style="color: var(--accent-cyan); font-weight: 500;">On May 14, 2026, they became the story.</p>
+
+    <!-- SOURCES -->
+    <div class="sources reveal">
+      <h2>Sources</h2>
+      <ol>
+        <li>
+          <strong>GitHub issue #15 — primary contemporaneous incident record</strong>
+          <a href="https://github.com/RIAEvangelist/node-ipc/issues/15" target="_blank" rel="noopener">https://github.com/RIAEvangelist/node-ipc/issues/15</a>
+        </li>
+        <li>
+          <strong>Datadog Security Labs — independent malware analysis</strong>
+          <a href="https://securitylabs.datadoghq.com/articles/node-ipc-npm-malware-analysis/" target="_blank" rel="noopener">https://securitylabs.datadoghq.com/articles/node-ipc-npm-malware-analysis/</a>
+        </li>
+        <li>
+          <strong>Socket — independent package analysis</strong>
+          <a href="https://socket.dev/blog/node-ipc-package-compromised" target="_blank" rel="noopener">https://socket.dev/blog/node-ipc-package-compromised</a>
+        </li>
+        <li>
+          <strong>StepSecurity — independent supply-chain analysis</strong>
+          <a href="https://www.stepsecurity.io/blog/node-ipc-npm-supply-chain-attack" target="_blank" rel="noopener">https://www.stepsecurity.io/blog/node-ipc-npm-supply-chain-attack</a>
+        </li>
+        <li>
+          <strong>Upstream <code>node-ipc</code> repository</strong>
+          <a href="https://github.com/RIAEvangelist/node-ipc" target="_blank" rel="noopener">https://github.com/RIAEvangelist/node-ipc</a>
+        </li>
+      </ol>
+    </div>
+
+  </article>
+
+</main>
+
+<footer>
+  <div class="footer-brand">Common Devops · <span>●</span> Supply Chain Security Research</div>
+</footer>
+
+<!-- Scroll-to-top button -->
+<div class="scroll-hint" id="scrollTop" title="Back to top">↑</div>
+
+<script>
+// Reading progress bar
+window.addEventListener('scroll', () => {
+  const scrollTop = document.documentElement.scrollTop || document.body.scrollTop;
+  const scrollHeight = document.documentElement.scrollHeight - document.documentElement.clientHeight;
+  const progress = (scrollTop / scrollHeight) * 100;
+  document.getElementById('progressBar').style.width = progress + '%';
+});
+
+// Scroll-to-top button
+const scrollBtn = document.getElementById('scrollTop');
+window.addEventListener('scroll', () => {
+  if (window.scrollY > 600) {
+    scrollBtn.classList.add('visible');
+  } else {
+    scrollBtn.classList.remove('visible');
+  }
+});
+scrollBtn.addEventListener('click', () => {
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+});
+
+// Reveal on scroll
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      entry.target.style.animationPlayState = 'running';
+      observer.unobserve(entry.target);
+    }
+  });
+}, { threshold: 0.1 });
+
+document.querySelectorAll('.reveal').forEach(el => {
+  el.style.animationPlayState = 'paused';
+  observer.observe(el);
+});
+</script>
+
+</body>
+</html>
